@@ -1,0 +1,7 @@
+{
+  "login_password": "0000",
+  "api_base_url": "http://localhost:8080",
+  "api_endpoint": "/api/query",
+  "http_timeout": 10,
+  "mock_mode": true
+}
