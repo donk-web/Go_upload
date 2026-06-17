@@ -1,0 +1,9 @@
+./capture.go
+./context.go
+./draw.go
+./draw_desktop.go
+./gl.go
+./gl_core.go
+./painter.go
+./shaders.go
+./texture.go
