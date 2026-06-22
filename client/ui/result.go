@@ -99,6 +99,7 @@ func BuildQueryView(window fyne.Window) fyne.CanvasObject {
 									HospitalCode: current.HospitalCode,
 									Username:     current.Username,
 									Role:         current.Role,
+									Doctor:       current.Doctor,
 								})
 								statusLabel.SetText("社区通登录状态已更新，请重新查询")
 							})

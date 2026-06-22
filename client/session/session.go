@@ -1,12 +1,17 @@
 package session
 
-import "sync"
+import (
+	"sync"
+
+	"fyne-getinfo/model"
+)
 
 type Info struct {
 	Token        string
 	HospitalCode string
 	Username     string
 	Role         string
+	Doctor       model.DoctorInfo
 }
 
 var (
@@ -30,6 +35,12 @@ func Token() string {
 	mu.RLock()
 	defer mu.RUnlock()
 	return current.Token
+}
+
+func SetDoctor(doctor model.DoctorInfo) {
+	mu.Lock()
+	defer mu.Unlock()
+	current.Doctor = doctor
 }
 
 func Clear() {

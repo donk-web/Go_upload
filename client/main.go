@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,16 +52,36 @@ func showLoginView(w fyne.Window) {
 // showMainView 显示带菜单的主界面
 func showMainView(w fyne.Window) {
 	stopKeepAlive := make(chan struct{})
-	startTokenKeepAlive(w, stopKeepAlive)
 	var logoutOnce sync.Once
 
 	current := session.Get()
 	isSuperAdmin := current.IsSuperAdmin()
+	loginInfoLabel := widget.NewLabel(formatLoginInfo(current))
+	loginInfoLabel.Alignment = fyne.TextAlignTrailing
+
+	refreshLoginInfo := func() {
+		if session.Token() == "" {
+			loginInfoLabel.SetText(formatLoginInfo(session.Get()))
+			return
+		}
+		go func() {
+			doctor, err := api.NewClient().GetCurrentDoctorInfo()
+			if err != nil {
+				return
+			}
+			session.SetDoctor(*doctor)
+			fyne.Do(func() {
+				loginInfoLabel.SetText(formatLoginInfo(session.Get()))
+			})
+		}()
+	}
+	startTokenKeepAlive(w, stopKeepAlive, refreshLoginInfo)
 
 	// 内容容器
 	content := container.NewMax()
 
 	queryView := ui.BuildQueryView(w)
+	batchQueryView := ui.BuildBatchQueryView(w)
 
 	// 默认显示查询界面
 	content.Objects = []fyne.CanvasObject{queryView}
@@ -73,6 +94,9 @@ func showMainView(w fyne.Window) {
 
 	homeBtn := widget.NewButton("首页查询", func() {
 		switchView("首页查询", queryView)
+	})
+	batchQueryBtn := widget.NewButton("批量查询", func() {
+		switchView("批量查询", batchQueryView)
 	})
 	logout := func() {
 		logoutOnce.Do(func() {
@@ -88,15 +112,21 @@ func showMainView(w fyne.Window) {
 				HospitalCode: current.HospitalCode,
 				Username:     current.Username,
 				Role:         current.Role,
+				Doctor:       doctorFallback(result.Username),
 			})
+			loginInfoLabel.SetText(formatLoginInfo(session.Get()))
+			refreshLoginInfo()
 		})
 	})
 	logoutBtn := widget.NewButton("退出登录", logout)
 
-	navItems := []fyne.CanvasObject{homeBtn}
+	navItems := []fyne.CanvasObject{homeBtn, batchQueryBtn}
 	menuItems := []*fyne.MenuItem{
 		fyne.NewMenuItem("首页查询", func() {
 			switchView("首页查询", queryView)
+		}),
+		fyne.NewMenuItem("批量查询", func() {
+			switchView("批量查询", batchQueryView)
 		}),
 	}
 
@@ -123,7 +153,10 @@ func showMainView(w fyne.Window) {
 				HospitalCode: current.HospitalCode,
 				Username:     current.Username,
 				Role:         current.Role,
+				Doctor:       doctorFallback(result.Username),
 			})
+			loginInfoLabel.SetText(formatLoginInfo(session.Get()))
+			refreshLoginInfo()
 		})
 	}))
 	menuItems = append(menuItems, fyne.NewMenuItem("退出登录", logout))
@@ -135,11 +168,13 @@ func showMainView(w fyne.Window) {
 	w.SetMainMenu(mainMenu)
 
 	// 切换窗口内容
-	w.SetContent(container.NewBorder(nav, nil, nil, nil, content))
+	topBar := container.NewBorder(nil, nil, nav, loginInfoLabel)
+	w.SetContent(container.NewBorder(topBar, nil, nil, nil, content))
 	w.SetTitle("居民档案查询系统 - 首页查询")
+	refreshLoginInfo()
 }
 
-func startTokenKeepAlive(w fyne.Window, stop <-chan struct{}) {
+func startTokenKeepAlive(w fyne.Window, stop <-chan struct{}, onTokenUpdated func()) {
 	var mu sync.Mutex
 	refreshing := false
 
@@ -198,7 +233,11 @@ func startTokenKeepAlive(w fyne.Window, stop <-chan struct{}) {
 						HospitalCode: current.HospitalCode,
 						Username:     current.Username,
 						Role:         current.Role,
+						Doctor:       doctorFallback(result.Username),
 					})
+					if onTokenUpdated != nil {
+						onTokenUpdated()
+					}
 				})
 				mu.Lock()
 				refreshing = false
@@ -221,6 +260,40 @@ func startTokenKeepAlive(w fyne.Window, stop <-chan struct{}) {
 			checkToken()
 		}
 	}()
+}
+
+func formatLoginInfo(info session.Info) string {
+	parts := make([]string, 0, 4)
+	if info.Doctor.Name != "" {
+		parts = append(parts, "当前医生："+info.Doctor.Name)
+	} else if info.Doctor.Account != "" {
+		parts = append(parts, "医生账号："+info.Doctor.Account)
+	} else {
+		parts = append(parts, "当前账号："+info.Username)
+	}
+
+	hospital := info.Doctor.Hospital
+	if hospital == "" {
+		hospital = info.HospitalCode
+	}
+	if hospital != "" {
+		parts = append(parts, "机构："+hospital)
+	}
+	if info.Doctor.Department != "" {
+		parts = append(parts, "科室："+info.Doctor.Department)
+	}
+	if info.Doctor.Role != "" {
+		parts = append(parts, "角色："+info.Doctor.Role)
+	}
+	return strings.Join(parts, "  |  ")
+}
+
+func doctorFallback(account string) model.DoctorInfo {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return model.DoctorInfo{}
+	}
+	return model.DoctorInfo{Account: account}
 }
 
 func randomKeepAliveInterval() time.Duration {

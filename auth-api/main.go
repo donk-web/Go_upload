@@ -223,8 +223,15 @@ func main() {
 	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureBatchSchema(context.Background(), db); err != nil {
+		log.Fatal("初始化批量查询数据表失败:", err)
+	}
 
 	store := newVerificationStore()
+	batchManager := newBatchManager(db)
+	if err := batchManager.RecoverInterruptedJobs(context.Background()); err != nil {
+		log.Println("恢复中断的批量查询任务失败:", err)
+	}
 
 	// Gin框架
 	router := gin.Default()
@@ -235,6 +242,19 @@ func main() {
 	{
 		api.GET("/health", healthHandler)
 		api.POST("/login", localLoginHandler(db))
+
+		batchJobs := api.Group("/batch-jobs")
+		{
+			batchJobs.POST("", createBatchJobHandler(db))
+			batchJobs.GET("", listBatchJobsHandler(db))
+			batchJobs.GET("/:id", getBatchJobHandler(db))
+			batchJobs.POST("/:id/start", startBatchJobHandler(batchManager))
+			batchJobs.POST("/:id/pause", pauseBatchJobHandler(batchManager))
+			batchJobs.POST("/:id/resume", resumeBatchJobHandler(batchManager))
+			batchJobs.POST("/:id/stop", stopBatchJobHandler(batchManager))
+			batchJobs.POST("/:id/retry", retryBatchJobHandler(db, batchManager))
+			batchJobs.GET("/:id/export", exportBatchJobHandler(db))
+		}
 
 		doctorToken := api.Group("/doctor-token")
 		{

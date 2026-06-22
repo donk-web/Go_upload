@@ -473,20 +473,51 @@ func (c *Client) QueryResidents(req model.Request) (*model.Response, error) {
 }
 
 func (c *Client) KeepBusinessTokenAlive() error {
+	_, err := c.GetCurrentDoctorInfo()
+	return err
+}
+
+// GetCurrentDoctorInfo 获取当前业务 token 对应的医生、机构和角色信息。
+func (c *Client) GetCurrentDoctorInfo() (*model.DoctorInfo, error) {
 	token := session.Token()
 	if token == "" {
-		return errors.New("请先登录")
+		return nil, errors.New("请先登录")
 	}
 
 	cfg := config.Get()
 	url := strings.TrimRight(cfg.APIBaseURL, "/") + "/apis/yqfk-sysmanage/sysUser/getLastOrgRole/pc"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	setBusinessHeaders(req, token)
-	return c.doJSON(req, &struct{}{})
+	var result map[string]any
+	if err := c.doJSON(req, &result); err != nil {
+		return nil, err
+	}
+
+	data := any(result)
+	if value, ok := result["data"]; ok && value != nil {
+		data = value
+	}
+
+	info := &model.DoctorInfo{
+		Name: firstJSONText(data,
+			"realName", "doctorName", "staffName", "employeeName", "nickname", "name", "userName"),
+		Account: firstJSONText(data,
+			"account", "userAccount", "loginName", "username", "userCode", "accountName"),
+		Hospital: firstJSONText(data,
+			"orgName", "organizationName", "hospitalName", "institutionName", "unitName"),
+		Department: firstJSONText(data,
+			"departmentName", "deptName", "officeName", "department"),
+		Role: firstJSONText(data,
+			"roleName", "role", "positionName", "jobName"),
+	}
+	if info.Name == "" && info.Account == "" && info.Hospital == "" && info.Department == "" && info.Role == "" {
+		return nil, errors.New("业务接口未返回当前医生信息")
+	}
+	return info, nil
 }
 
 // 把原来的真实请求代码移到这个私有方法里
@@ -669,4 +700,58 @@ func defaultString(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func firstJSONText(value any, keys ...string) string {
+	for _, key := range keys {
+		wanted := map[string]struct{}{normalizeJSONKey(key): {}}
+		if text := findJSONText(value, wanted); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func findJSONText(value any, wanted map[string]struct{}) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if _, ok := wanted[normalizeJSONKey(key)]; ok {
+				if text := scalarJSONText(item); text != "" {
+					return text
+				}
+			}
+		}
+		for _, item := range typed {
+			if text := findJSONText(item, wanted); text != "" {
+				return text
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if text := findJSONText(item, wanted); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func scalarJSONText(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.6f", typed), "0"), ".")
+	}
+	return ""
+}
+
+func normalizeJSONKey(value string) string {
+	value = strings.ToLower(value)
+	value = strings.ReplaceAll(value, "_", "")
+	value = strings.ReplaceAll(value, "-", "")
+	return value
 }
