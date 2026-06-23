@@ -48,6 +48,31 @@ type batchViewLogResponse struct {
 	} `json:"data"`
 }
 
+type batchComprehensiveSearchResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		List []struct {
+			ID                 string `json:"id"`
+			IdentityNum        string `json:"identityNum"`
+			IdentityNumEncrypt string `json:"identityNumEncrypt"`
+			RealIdentityNum    string `json:"realIdentityNum"`
+			Name               string `json:"name"`
+			RealName           string `json:"realName"`
+		} `json:"list"`
+	} `json:"data"`
+}
+
+type batchAppBasicInfoResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    []struct {
+		ID       string `json:"id"`
+		IDNumber string `json:"idNumber"`
+		Name     string `json:"name"`
+	} `json:"data"`
+}
+
 func newBatchBusinessClient() *batchBusinessClient {
 	baseURL := strings.TrimSpace(os.Getenv("BUSINESS_API_BASE"))
 	if baseURL == "" {
@@ -100,6 +125,153 @@ func (c *batchBusinessClient) QueryResident(ctx context.Context, token, idCard s
 		})
 	}
 	return records, nil
+}
+
+func (c *batchBusinessClient) QueryResidentWithMethod(ctx context.Context, token, idCard, queryMethod string) ([]batchArchiveRecord, error) {
+	if queryMethod == batchQueryMethodNew {
+		return c.queryResidentNew(ctx, token, idCard)
+	}
+	return c.QueryResident(ctx, token, idCard)
+}
+
+func (c *batchBusinessClient) queryResidentNew(ctx context.Context, token, idCard string) ([]batchArchiveRecord, error) {
+	searchItem, err := c.getComprehensiveSearchItem(ctx, token, idCard)
+	if err != nil {
+		return nil, err
+	}
+	archives, err := c.getBasicInfoListForApp(ctx, token, searchItem.IdentityNumEncrypt)
+	if err != nil {
+		return nil, err
+	}
+
+	name := firstBatchNonEmpty(searchItem.RealName, searchItem.Name)
+	records := make([]batchArchiveRecord, 0)
+	seen := make(map[string]struct{})
+	for _, archive := range archives {
+		logs, err := c.getViewLogs(ctx, token, archive.ID)
+		if err != nil {
+			return nil, err
+		}
+		recordName := firstBatchNonEmpty(name, archive.Name)
+		for _, item := range logs.Data {
+			key := strings.Join([]string{
+				item.ViewTime,
+				item.ViewOrgName,
+				item.Department,
+				item.ViewUserName,
+				item.AccessChannel,
+			}, "\x00")
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			records = append(records, batchArchiveRecord{
+				IDCard:        idCard,
+				Name:          recordName,
+				Index:         len(records) + 1,
+				ViewTime:      item.ViewTime,
+				ViewOrgName:   item.ViewOrgName,
+				Department:    item.Department,
+				ViewUserName:  item.ViewUserName,
+				AccessChannel: batchAccessChannelName(item.AccessChannel),
+			})
+		}
+	}
+	if len(records) == 0 {
+		return []batchArchiveRecord{{
+			IDCard: idCard,
+			Name:   firstBatchNonEmpty(name, archives[0].Name),
+			Index:  0,
+		}}, nil
+	}
+	return records, nil
+}
+
+type batchComprehensiveSearchItem struct {
+	IdentityNumEncrypt string
+	Name               string
+	RealName           string
+}
+
+type batchAppBasicInfoItem struct {
+	ID   string
+	Name string
+}
+
+func (c *batchBusinessClient) getComprehensiveSearchItem(ctx context.Context, token, idCard string) (*batchComprehensiveSearchItem, error) {
+	payload := map[string]any{
+		"comprehensiveQuery": idCard,
+		"count":              true,
+		"pageNum":            1,
+		"pageSize":           10,
+		"total":              0,
+	}
+	var result batchComprehensiveSearchResponse
+	if err := c.doJSON(ctx, http.MethodPost, c.baseURL+"/apis/yqfk-population/basicHealthPop/getYqfkZhcxList", token, payload, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, errors.New(firstBatchNonEmpty(result.Message, "综合查询居民失败"))
+	}
+	if len(result.Data.List) == 0 {
+		return nil, errBatchResidentNotFound
+	}
+
+	selected := -1
+	for index, item := range result.Data.List {
+		if item.RealIdentityNum == idCard || item.IdentityNum == idCard {
+			if selected >= 0 {
+				return nil, errBatchMultipleResidents
+			}
+			selected = index
+		}
+	}
+	if selected < 0 {
+		if len(result.Data.List) != 1 {
+			return nil, errBatchMultipleResidents
+		}
+		selected = 0
+	}
+	item := result.Data.List[selected]
+	if strings.TrimSpace(item.IdentityNumEncrypt) == "" {
+		return nil, errors.New("综合查询未返回加密身份证号")
+	}
+	return &batchComprehensiveSearchItem{
+		IdentityNumEncrypt: item.IdentityNumEncrypt,
+		Name:               item.Name,
+		RealName:           item.RealName,
+	}, nil
+}
+
+func (c *batchBusinessClient) getBasicInfoListForApp(ctx context.Context, token, idNumberEncrypt string) ([]batchAppBasicInfoItem, error) {
+	payload := map[string]any{
+		"channel":         "pc",
+		"idNumberEncrypt": idNumberEncrypt,
+	}
+	var result batchAppBasicInfoResponse
+	if err := c.doJSON(ctx, http.MethodPost, c.baseURL+"/apis/yqfk-population/rhr/getBasicInfoListForApp", token, payload, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, errors.New(firstBatchNonEmpty(result.Message, "查询居民健康档案失败"))
+	}
+	archives := make([]batchAppBasicInfoItem, 0, len(result.Data))
+	seen := make(map[string]struct{})
+	for _, item := range result.Data {
+		item.ID = strings.TrimSpace(item.ID)
+		if item.ID == "" {
+			continue
+		}
+		if _, exists := seen[item.ID]; exists {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		archives = append(archives, batchAppBasicInfoItem{ID: item.ID, Name: item.Name})
+	}
+	if len(archives) == 0 {
+		return nil, errBatchResidentNotFound
+	}
+	return archives, nil
 }
 
 func (c *batchBusinessClient) getBasicInfo(ctx context.Context, token, idCard string) (*struct {
@@ -208,4 +380,13 @@ func batchAccessChannelName(code string) string {
 	default:
 		return code
 	}
+}
+
+func firstBatchNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

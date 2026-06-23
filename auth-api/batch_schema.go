@@ -13,6 +13,7 @@ func ensureBatchSchema(ctx context.Context, db *sql.DB) error {
 			hospital_code VARCHAR(64) NOT NULL COMMENT '任务所属医院编号',
 			created_by VARCHAR(64) NOT NULL COMMENT '任务创建人登录账号',
 			file_name VARCHAR(255) NOT NULL COMMENT '导入的原始文件名称',
+			query_method VARCHAR(20) NOT NULL DEFAULT 'legacy' COMMENT '查询方式：legacy原接口、new新接口',
 			status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT '任务状态',
 			total_count INT NOT NULL DEFAULT 0 COMMENT '导入数据总数',
 			pending_count INT NOT NULL DEFAULT 0 COMMENT '待查询数据数量',
@@ -85,6 +86,21 @@ func ensureBatchSchema(ctx context.Context, db *sql.DB) error {
 			AFTER success_count
 		`); err != nil {
 			return fmt.Errorf("升级批量任务表失败: %w", err)
+		}
+	}
+
+	exists, err = batchColumnExists(ctx, db, "batch_query_jobs", "query_method")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE batch_query_jobs
+			ADD COLUMN query_method VARCHAR(20) NOT NULL DEFAULT 'legacy'
+			COMMENT '查询方式：legacy原接口、new新接口'
+			AFTER file_name
+		`); err != nil {
+			return fmt.Errorf("升级批量任务查询方式字段失败: %w", err)
 		}
 	}
 	return nil

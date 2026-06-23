@@ -25,6 +25,12 @@ func BuildQueryView(window fyne.Window) fyne.CanvasObject {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("请输入姓名（可选）")
 
+	queryMethodSelect := widget.NewSelect([]string{
+		"原接口（明文身份证查询）",
+		"新接口（综合查询，多档案合并）",
+	}, nil)
+	queryMethodSelect.SetSelected("原接口（明文身份证查询）")
+
 	statusLabel := widget.NewLabel("查询结果将显示在这里")
 	records := []model.ArchiveViewLog{}
 	headers := []string{"证件号码", "姓名", "序号", "调阅时间", "调阅机构", "调阅科室", "调阅人", "调阅渠道"}
@@ -69,9 +75,14 @@ func BuildQueryView(window fyne.Window) fyne.CanvasObject {
 			return
 		}
 
+		queryMethod := model.QueryMethodLegacy
+		if queryMethodSelect.Selected == "新接口（综合查询，多档案合并）" {
+			queryMethod = model.QueryMethodNew
+		}
 		req := model.Request{
-			IDCard: idCard,
-			Name:   nameEntry.Text,
+			IDCard:      idCard,
+			Name:        nameEntry.Text,
+			QueryMethod: queryMethod,
 		}
 
 		queryBtn.Disable()
@@ -130,6 +141,7 @@ func BuildQueryView(window fyne.Window) fyne.CanvasObject {
 		widget.NewForm(
 			widget.NewFormItem("身份证号", idCardEntry),
 			widget.NewFormItem("姓名", nameEntry),
+			widget.NewFormItem("查询方式", queryMethodSelect),
 		),
 		queryBtn,
 		statusLabel,

@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS batch_query_jobs (
   hospital_code VARCHAR(64) NOT NULL COMMENT '任务所属医院编号',
   created_by VARCHAR(64) NOT NULL COMMENT '任务创建人登录账号',
   file_name VARCHAR(255) NOT NULL COMMENT '导入的原始文件名称',
+  query_method VARCHAR(20) NOT NULL DEFAULT 'legacy'
+    COMMENT '查询方式：legacy原接口、new新接口',
   status VARCHAR(20) NOT NULL DEFAULT 'pending'
     COMMENT '任务状态：pending待开始、running查询中、paused已暂停、completed已完成、stopped已停止、failed执行失败',
 

@@ -89,7 +89,9 @@ type yzyLoginStatusResponse struct {
 }
 
 type rhrBasicInfoResponse struct {
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		List []rhrBasicInfo `json:"list"`
 	} `json:"data"`
 }
@@ -102,7 +104,9 @@ type rhrBasicInfo struct {
 }
 
 type viewLogListResponse struct {
-	Data []viewLogItem `json:"data"`
+	Code    int           `json:"code"`
+	Message string        `json:"message"`
+	Data    []viewLogItem `json:"data"`
 }
 
 type viewLogItem struct {
@@ -111,6 +115,35 @@ type viewLogItem struct {
 	Department    string `json:"departmentName"`
 	ViewUserName  string `json:"viewUserName"`
 	AccessChannel string `json:"accessChannel"`
+}
+
+type comprehensiveSearchResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		List []comprehensiveSearchItem `json:"list"`
+	} `json:"data"`
+}
+
+type comprehensiveSearchItem struct {
+	ID                 string `json:"id"`
+	IdentityNum        string `json:"identityNum"`
+	IdentityNumEncrypt string `json:"identityNumEncrypt"`
+	RealIdentityNum    string `json:"realIdentityNum"`
+	Name               string `json:"name"`
+	RealName           string `json:"realName"`
+}
+
+type appBasicInfoResponse struct {
+	Code    int                `json:"code"`
+	Message string             `json:"message"`
+	Data    []appBasicInfoItem `json:"data"`
+}
+
+type appBasicInfoItem struct {
+	ID       string `json:"id"`
+	IDNumber string `json:"idNumber"`
+	Name     string `json:"name"`
 }
 
 func NewClient() *Client {
@@ -469,6 +502,9 @@ func (c *Client) QueryResidents(req model.Request) (*model.Response, error) {
 	}
 
 	// ========== 真实请求模式 ==========
+	if req.QueryMethod == model.QueryMethodNew {
+		return c.queryRealNew(req)
+	}
 	return c.queryReal(req)
 }
 
@@ -558,6 +594,134 @@ func (c *Client) queryReal(req model.Request) (*model.Response, error) {
 	}, nil
 }
 
+func (c *Client) queryRealNew(req model.Request) (*model.Response, error) {
+	token := session.Token()
+	if token == "" {
+		return nil, errors.New("请先登录")
+	}
+
+	searchItem, err := c.getComprehensiveSearchItem(req.IDCard, token)
+	if err != nil {
+		return nil, err
+	}
+	archives, err := c.getBasicInfoListForApp(searchItem.IdentityNumEncrypt, token)
+	if err != nil {
+		return nil, err
+	}
+
+	name := firstNonEmpty(searchItem.RealName, searchItem.Name, req.Name)
+	records := make([]model.ArchiveViewLog, 0)
+	seen := make(map[string]struct{})
+	for _, archive := range archives {
+		viewLogs, err := c.getViewLogList(archive.ID, token)
+		if err != nil {
+			return nil, err
+		}
+		recordName := firstNonEmpty(name, archive.Name)
+		for _, item := range viewLogs {
+			key := strings.Join([]string{
+				item.ViewTime,
+				item.ViewOrgName,
+				item.Department,
+				item.ViewUserName,
+				item.AccessChannel,
+			}, "\x00")
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			records = append(records, model.ArchiveViewLog{
+				IDCard:        req.IDCard,
+				Name:          recordName,
+				Index:         len(records) + 1,
+				ViewTime:      item.ViewTime,
+				ViewOrgName:   item.ViewOrgName,
+				Department:    item.Department,
+				ViewUserName:  item.ViewUserName,
+				AccessChannel: accessChannelName(item.AccessChannel),
+			})
+		}
+	}
+
+	return &model.Response{Code: 0, Message: "success", Data: records}, nil
+}
+
+func (c *Client) getComprehensiveSearchItem(idCard, token string) (*comprehensiveSearchItem, error) {
+	cfg := config.Get()
+	endpoint := strings.TrimRight(cfg.APIBaseURL, "/") + "/apis/yqfk-population/basicHealthPop/getYqfkZhcxList"
+	payload := map[string]any{
+		"comprehensiveQuery": idCard,
+		"count":              true,
+		"pageNum":            1,
+		"pageSize":           10,
+		"total":              0,
+	}
+	var result comprehensiveSearchResponse
+	if err := c.postBusinessJSON(endpoint, token, payload, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, errors.New(defaultString(result.Message, "综合查询居民失败"))
+	}
+	if len(result.Data.List) == 0 {
+		return nil, errors.New("查无此人")
+	}
+
+	var selected *comprehensiveSearchItem
+	for index := range result.Data.List {
+		item := &result.Data.List[index]
+		if item.RealIdentityNum == idCard || item.IdentityNum == idCard {
+			if selected != nil {
+				return nil, errors.New("查到多个相同身份证居民")
+			}
+			selected = item
+		}
+	}
+	if selected == nil {
+		if len(result.Data.List) != 1 {
+			return nil, errors.New("综合查询返回多人，无法确定目标居民")
+		}
+		selected = &result.Data.List[0]
+	}
+	if strings.TrimSpace(selected.IdentityNumEncrypt) == "" {
+		return nil, errors.New("综合查询未返回加密身份证号")
+	}
+	return selected, nil
+}
+
+func (c *Client) getBasicInfoListForApp(idNumberEncrypt, token string) ([]appBasicInfoItem, error) {
+	cfg := config.Get()
+	endpoint := strings.TrimRight(cfg.APIBaseURL, "/") + "/apis/yqfk-population/rhr/getBasicInfoListForApp"
+	payload := map[string]any{
+		"channel":         "pc",
+		"idNumberEncrypt": idNumberEncrypt,
+	}
+	var result appBasicInfoResponse
+	if err := c.postBusinessJSON(endpoint, token, payload, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, errors.New(defaultString(result.Message, "查询居民健康档案失败"))
+	}
+	archives := make([]appBasicInfoItem, 0, len(result.Data))
+	seen := make(map[string]struct{})
+	for _, item := range result.Data {
+		item.ID = strings.TrimSpace(item.ID)
+		if item.ID == "" {
+			continue
+		}
+		if _, exists := seen[item.ID]; exists {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		archives = append(archives, item)
+	}
+	if len(archives) == 0 {
+		return nil, errors.New("暂无居民健康档案")
+	}
+	return archives, nil
+}
+
 func (c *Client) getRhrBasicInfo(req model.Request, token string) (*rhrBasicInfo, error) {
 	cfg := config.Get()
 	url := strings.TrimRight(cfg.APIBaseURL, "/") + "/apis/yqfk-population/rhr/getRhrBasicInfoList"
@@ -576,6 +740,9 @@ func (c *Client) getRhrBasicInfo(req model.Request, token string) (*rhrBasicInfo
 	var result rhrBasicInfoResponse
 	if err := c.postBusinessJSON(url, token, payload, &result); err != nil {
 		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, errors.New(defaultString(result.Message, "查询居民档案失败"))
 	}
 
 	if len(result.Data.List) == 0 {
@@ -596,8 +763,20 @@ func (c *Client) getViewLogList(infoID, token string) ([]viewLogItem, error) {
 	if err := c.getBusinessJSON(url, token, &result); err != nil {
 		return nil, err
 	}
+	if result.Code != 0 {
+		return nil, errors.New(defaultString(result.Message, "查询历史调阅记录失败"))
+	}
 
 	return result.Data, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (c *Client) postBusinessJSON(url, token string, payload any, target any) error {

@@ -5,6 +5,9 @@ import (
 )
 
 const (
+	batchQueryMethodLegacy = "legacy"
+	batchQueryMethodNew    = "new"
+
 	batchJobPending   = "pending"
 	batchJobRunning   = "running"
 	batchJobPaused    = "paused"
@@ -24,6 +27,7 @@ type batchJob struct {
 	HospitalCode   string     `json:"hospital_code"`
 	CreatedBy      string     `json:"created_by"`
 	FileName       string     `json:"file_name"`
+	QueryMethod    string     `json:"query_method"`
 	Status         string     `json:"status"`
 	TotalCount     int        `json:"total_count"`
 	PendingCount   int        `json:"pending_count"`

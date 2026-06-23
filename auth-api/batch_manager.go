@@ -169,7 +169,7 @@ func (m *batchManager) run(ctx context.Context, controller *batchController, job
 			return
 		}
 
-		authError, err := m.processBatch(ctx, controller, token, items, workerCount, writeSize)
+		authError, err := m.processBatch(ctx, controller, token, job.QueryMethod, items, workerCount, writeSize)
 		if err != nil {
 			if ctx.Err() == nil {
 				m.failJob(job.ID, err)
@@ -188,7 +188,7 @@ func (m *batchManager) run(ctx context.Context, controller *batchController, job
 	}
 }
 
-func (m *batchManager) processBatch(ctx context.Context, controller *batchController, token string, items []batchItem, workerCount, writeSize int) (error, error) {
+func (m *batchManager) processBatch(ctx context.Context, controller *batchController, token, queryMethod string, items []batchItem, workerCount, writeSize int) (error, error) {
 	taskCh := make(chan batchItem, workerCount*2)
 	outcomeCh := make(chan batchQueryOutcome, workerCount*2)
 	var workers sync.WaitGroup
@@ -205,7 +205,7 @@ func (m *batchManager) processBatch(ctx context.Context, controller *batchContro
 					if !ok {
 						return
 					}
-					outcome := m.queryItem(ctx, token, item)
+					outcome := m.queryItem(ctx, token, queryMethod, item)
 					select {
 					case outcomeCh <- outcome:
 					case <-ctx.Done():
@@ -274,10 +274,10 @@ func (m *batchManager) processBatch(ctx context.Context, controller *batchContro
 	return authError, nil
 }
 
-func (m *batchManager) queryItem(ctx context.Context, token string, item batchItem) batchQueryOutcome {
+func (m *batchManager) queryItem(ctx context.Context, token, queryMethod string, item batchItem) batchQueryOutcome {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		records, err := m.business.QueryResident(ctx, token, item.IDCard)
+		records, err := m.business.QueryResidentWithMethod(ctx, token, item.IDCard, queryMethod)
 		if err == nil {
 			return batchQueryOutcome{Item: item, Status: batchItemSuccess, Records: records}
 		}

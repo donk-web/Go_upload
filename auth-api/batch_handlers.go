@@ -57,6 +57,14 @@ func createBatchJobHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, apiResponse{Code: 400, Message: err.Error()})
 			return
 		}
+		queryMethod := strings.TrimSpace(c.PostForm("query_method"))
+		if queryMethod == "" {
+			queryMethod = batchQueryMethodLegacy
+		}
+		if queryMethod != batchQueryMethodLegacy && queryMethod != batchQueryMethodNew {
+			c.JSON(http.StatusBadRequest, apiResponse{Code: 400, Message: "查询方式不正确"})
+			return
+		}
 
 		header, err := c.FormFile("file")
 		if err != nil {
@@ -96,7 +104,7 @@ func createBatchJobHandler(db *sql.DB) gin.HandlerFunc {
 		defer cancel()
 		jobID, total, err := createBatchJob(
 			ctx, db, hospitalCode, createdBy, filepath.Base(header.Filename),
-			workerCount, fetchBatchSize, writeBatchSize, tempPath,
+			queryMethod, workerCount, fetchBatchSize, writeBatchSize, tempPath,
 		)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, apiResponse{Code: 400, Message: err.Error()})

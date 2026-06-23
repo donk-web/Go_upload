@@ -2,9 +2,15 @@ package model
 
 import "time"
 
+const (
+	QueryMethodLegacy = "legacy"
+	QueryMethodNew    = "new"
+)
+
 type Request struct {
-	IDCard string `json:"id_card"`
-	Name   string `json:"name,omitempty"`
+	IDCard      string `json:"id_card"`
+	Name        string `json:"name,omitempty"`
+	QueryMethod string `json:"query_method,omitempty"`
 }
 
 type ArchiveViewLog struct {
@@ -59,6 +65,7 @@ type BatchJob struct {
 	HospitalCode   string     `json:"hospital_code"`
 	CreatedBy      string     `json:"created_by"`
 	FileName       string     `json:"file_name"`
+	QueryMethod    string     `json:"query_method"`
 	Status         string     `json:"status"`
 	TotalCount     int        `json:"total_count"`
 	PendingCount   int        `json:"pending_count"`

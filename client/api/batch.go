@@ -27,6 +27,7 @@ type BatchJobCreateOptions struct {
 	WorkerCount    int
 	FetchBatchSize int
 	WriteBatchSize int
+	QueryMethod    string
 }
 
 type batchJobResponse struct {
@@ -71,6 +72,7 @@ func (c *Client) CreateBatchJob(options BatchJobCreateOptions) (*model.BatchJob,
 			"worker_count":     strconv.Itoa(options.WorkerCount),
 			"fetch_batch_size": strconv.Itoa(options.FetchBatchSize),
 			"write_batch_size": strconv.Itoa(options.WriteBatchSize),
+			"query_method":     options.QueryMethod,
 		}
 		for name, value := range fields {
 			if writeErr = multipartWriter.WriteField(name, value); writeErr != nil {

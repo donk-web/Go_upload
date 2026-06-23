@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func createBatchJob(ctx context.Context, db *sql.DB, hospitalCode, createdBy, fileName string, workerCount, fetchBatchSize, writeBatchSize int, filePath string) (int64, int, error) {
+func createBatchJob(ctx context.Context, db *sql.DB, hospitalCode, createdBy, fileName, queryMethod string, workerCount, fetchBatchSize, writeBatchSize int, filePath string) (int64, int, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
@@ -18,10 +18,10 @@ func createBatchJob(ctx context.Context, db *sql.DB, hospitalCode, createdBy, fi
 
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO batch_query_jobs (
-			hospital_code, created_by, file_name, status,
+			hospital_code, created_by, file_name, query_method, status,
 			worker_count, fetch_batch_size, write_batch_size
-		) VALUES (?, ?, ?, 'pending', ?, ?, ?)
-	`, hospitalCode, createdBy, fileName, workerCount, fetchBatchSize, writeBatchSize)
+		) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+	`, hospitalCode, createdBy, fileName, queryMethod, workerCount, fetchBatchSize, writeBatchSize)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -98,7 +98,7 @@ func getBatchJob(ctx context.Context, db *sql.DB, jobID int64) (*batchJob, error
 	var errorMessage sql.NullString
 	err := db.QueryRowContext(ctx, `
 		SELECT
-			j.id, j.hospital_code, j.created_by, j.file_name, j.status,
+			j.id, j.hospital_code, j.created_by, j.file_name, j.query_method, j.status,
 			(SELECT COUNT(*) FROM batch_query_items i WHERE i.job_id = j.id) AS total_count,
 			(SELECT COUNT(*) FROM batch_query_items i WHERE i.job_id = j.id AND i.status = 'pending') AS pending_count,
 			(SELECT COUNT(*) FROM batch_query_items i WHERE i.job_id = j.id AND i.status = 'running') AS running_count,
@@ -110,7 +110,7 @@ func getBatchJob(ctx context.Context, db *sql.DB, jobID int64) (*batchJob, error
 		FROM batch_query_jobs j
 		WHERE j.id = ?
 	`, jobID).Scan(
-		&job.ID, &job.HospitalCode, &job.CreatedBy, &job.FileName, &job.Status,
+		&job.ID, &job.HospitalCode, &job.CreatedBy, &job.FileName, &job.QueryMethod, &job.Status,
 		&job.TotalCount, &job.PendingCount, &job.RunningCount, &job.SuccessCount,
 		&job.NotFoundCount, &job.FailedCount, &job.WorkerCount, &job.FetchBatchSize,
 		&job.WriteBatchSize, &errorMessage, &startedAt, &completedAt,

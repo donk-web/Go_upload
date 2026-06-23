@@ -40,6 +40,11 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 	fetchBatchSelect.SetSelected("500")
 	writeBatchSelect := widget.NewSelect([]string{"100", "200", "500"}, nil)
 	writeBatchSelect.SetSelected("200")
+	queryMethodSelect := widget.NewSelect([]string{
+		"原接口（明文身份证查询）",
+		"新接口（综合查询，多档案合并）",
+	}, nil)
+	queryMethodSelect.SetSelected("原接口（明文身份证查询）")
 
 	statusLabel := widget.NewLabel("等待选择批量查询文件")
 	statusLabel.Wrapping = fyne.TextWrapWord
@@ -90,6 +95,7 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 			setSelectEnabled(workerSelect, false)
 			setSelectEnabled(fetchBatchSelect, false)
 			setSelectEnabled(writeBatchSelect, false)
+			setSelectEnabled(queryMethodSelect, false)
 			return
 		}
 
@@ -104,6 +110,9 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 		setSelectEnabled(workerSelect, !running)
 		setSelectEnabled(fetchBatchSelect, !running)
 		setSelectEnabled(writeBatchSelect, !running)
+		canConfigureNewJob := currentJob == nil || (selectedURI != nil &&
+			(currentJob.Status == "completed" || currentJob.Status == "stopped" || currentJob.Status == "failed"))
+		setSelectEnabled(queryMethodSelect, canConfigureNewJob)
 
 		canCreate := selectedURI != nil && (currentJob == nil ||
 			currentJob.Status == "completed" || currentJob.Status == "stopped" || currentJob.Status == "failed")
@@ -133,6 +142,11 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 			return
 		}
 		currentJob = job
+		if job.QueryMethod == model.QueryMethodNew {
+			queryMethodSelect.SetSelected("新接口（综合查询，多档案合并）")
+		} else {
+			queryMethodSelect.SetSelected("原接口（明文身份证查询）")
+		}
 		totalValue.SetText(strconv.Itoa(job.TotalCount))
 		pendingValue.SetText(strconv.Itoa(job.PendingCount + job.RunningCount))
 		successValue.SetText(strconv.Itoa(job.SuccessCount))
@@ -346,9 +360,10 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 				for index := range jobs {
 					job := jobs[index]
 					option := fmt.Sprintf(
-						"#%d · %s · %s · %d/%d",
+						"#%d · %s · %s · %s · %d/%d",
 						job.ID,
 						batchStatusName(job.Status),
+						batchQueryMethodName(job.QueryMethod),
 						job.FileName,
 						job.ProcessedCount,
 						job.TotalCount,
@@ -410,6 +425,10 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 		workerCount, _ := strconv.Atoi(workerSelect.Selected)
 		fetchBatchSize, _ := strconv.Atoi(fetchBatchSelect.Selected)
 		writeBatchSize, _ := strconv.Atoi(writeBatchSelect.Selected)
+		queryMethod := model.QueryMethodLegacy
+		if queryMethodSelect.Selected == "新接口（综合查询，多档案合并）" {
+			queryMethod = model.QueryMethodNew
+		}
 		uri := selectedURI
 		setBusy(true, "正在流式上传并导入身份证数据，请稍候...")
 		go func() {
@@ -429,6 +448,7 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 				WorkerCount:    workerCount,
 				FetchBatchSize: fetchBatchSize,
 				WriteBatchSize: writeBatchSize,
+				QueryMethod:    queryMethod,
 			})
 			_ = reader.Close()
 			if err == nil {
@@ -539,6 +559,7 @@ func BuildBatchQueryView(window fyne.Window) fyne.CanvasObject {
 			widget.NewFormItem("查询并发数", workerSelect),
 			widget.NewFormItem("数据库领取批次", fetchBatchSelect),
 			widget.NewFormItem("结果写入批次", writeBatchSelect),
+			widget.NewFormItem("查询方式", queryMethodSelect),
 		),
 	)
 
@@ -589,6 +610,13 @@ func batchStatisticCard(title string, value fyne.CanvasObject) fyne.CanvasObject
 	return widget.NewCard("", title, container.NewCenter(value))
 }
 
+func batchQueryMethodName(method string) string {
+	if method == model.QueryMethodNew {
+		return "新接口"
+	}
+	return "原接口"
+}
+
 func setButtonEnabled(button *widget.Button, enabled bool) {
 	if enabled {
 		button.Enable()
@@ -620,8 +648,8 @@ func batchJobStatusText(job *model.BatchJob) string {
 		status = job.Status
 	}
 	text := fmt.Sprintf(
-		"任务 #%d · %s · 已处理 %d/%d",
-		job.ID, status, job.ProcessedCount, job.TotalCount,
+		"任务 #%d · %s · %s · 已处理 %d/%d",
+		job.ID, batchQueryMethodName(job.QueryMethod), status, job.ProcessedCount, job.TotalCount,
 	)
 	if job.ErrorMessage != "" {
 		text += " · " + job.ErrorMessage
