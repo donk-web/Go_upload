@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -284,6 +284,9 @@ func (c *batchBusinessClient) getBasicInfoListForApp(ctx context.Context, token,
 	if len(archives) == 0 {
 		return nil, errBatchResidentNotFound
 	}
+	for index, archive := range archives {
+		log.Printf("[business-debug] getBasicInfoListForApp archive[%d] id=%q name=%q", index, archive.ID, archive.Name)
+	}
 	return archives, nil
 }
 
@@ -320,8 +323,10 @@ func (c *batchBusinessClient) getBasicInfo(ctx context.Context, token, idCard st
 
 func (c *batchBusinessClient) getViewLogs(ctx context.Context, token, infoID string) (*batchViewLogResponse, error) {
 	var result batchViewLogResponse
-	endpoint := c.baseURL + "/apis/yqfk-population/rhr/getViewLogList/" + url.PathEscape(infoID)
-	if err := c.doJSON(ctx, http.MethodGet, endpoint, token, nil, &result); err != nil {
+	endpoint := c.baseURL + "/apis/yqfk-population/rhr/getViewLogList"
+	payload := map[string]any{"infoId": infoID}
+	log.Printf("[business-debug] getViewLogList endpoint=%s payload=%v", endpoint, payload)
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, token, payload, &result); err != nil {
 		return nil, err
 	}
 	if result.Code != 0 && result.Message != "" {
@@ -354,6 +359,7 @@ func (c *batchBusinessClient) doJSON(ctx context.Context, method, endpoint, toke
 		return fmt.Errorf("读取业务接口响应失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[business-debug] business response error method=%s url=%s status=%d body=%s", method, endpoint, resp.StatusCode, strings.TrimSpace(string(data)))
 		return fmt.Errorf("业务接口返回异常: HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	if err := json.Unmarshal(data, target); err != nil {

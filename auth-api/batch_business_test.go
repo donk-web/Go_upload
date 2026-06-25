@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -20,7 +21,14 @@ func TestBatchBusinessClientQueryResident(t *testing.T) {
 			switch r.URL.Path {
 			case "/apis/yqfk-population/rhr/getRhrBasicInfoList":
 				body = `{"code":0,"data":{"list":[{"id":"resident-1","idNumber":"440101199001011234","name":"张三"}]}}`
-			case "/apis/yqfk-population/rhr/getViewLogList/resident-1":
+			case "/apis/yqfk-population/rhr/getViewLogList":
+				if requestPayloadID(t, r) != "resident-1" {
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Body:       io.NopCloser(strings.NewReader("not found")),
+						Header:     make(http.Header),
+					}, nil
+				}
 				body = `{"code":0,"data":[{"viewTime":"2026-06-18 10:00:00","viewOrgName":"测试医院","departmentName":"全科","viewUserName":"李医生","accessChannel":"1"}]}`
 			default:
 				return &http.Response{
@@ -75,10 +83,19 @@ func TestBatchBusinessClientQueryResidentNewMergesAllArchives(t *testing.T) {
 				body = `{"code":0,"data":{"list":[{"identityNumEncrypt":"encrypted-id","realIdentityNum":"440101199001011234","realName":"张三"}]}}`
 			case "/apis/yqfk-population/rhr/getBasicInfoListForApp":
 				body = `{"code":0,"data":[{"id":"archive-1","name":"张*"},{"id":"archive-2","name":"张*"}]}`
-			case "/apis/yqfk-population/rhr/getViewLogList/archive-1":
-				body = `{"code":0,"data":[{"viewTime":"2026-06-18 10:00:00","viewOrgName":"医院A","departmentName":"全科","viewUserName":"李医生","accessChannel":"1"}]}`
-			case "/apis/yqfk-population/rhr/getViewLogList/archive-2":
-				body = `{"code":0,"data":[{"viewTime":"2026-06-19 11:00:00","viewOrgName":"医院B","departmentName":"内科","viewUserName":"王医生","accessChannel":"2"},{"viewTime":"2026-06-18 10:00:00","viewOrgName":"医院A","departmentName":"全科","viewUserName":"李医生","accessChannel":"1"}]}`
+			case "/apis/yqfk-population/rhr/getViewLogList":
+				switch requestPayloadID(t, r) {
+				case "archive-1":
+					body = `{"code":0,"data":[{"viewTime":"2026-06-18 10:00:00","viewOrgName":"医院A","departmentName":"全科","viewUserName":"李医生","accessChannel":"1"}]}`
+				case "archive-2":
+					body = `{"code":0,"data":[{"viewTime":"2026-06-19 11:00:00","viewOrgName":"医院B","departmentName":"内科","viewUserName":"王医生","accessChannel":"2"},{"viewTime":"2026-06-18 10:00:00","viewOrgName":"医院A","departmentName":"全科","viewUserName":"李医生","accessChannel":"1"}]}`
+				default:
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Body:       io.NopCloser(strings.NewReader("not found")),
+						Header:     make(http.Header),
+					}, nil
+				}
 			default:
 				return &http.Response{
 					StatusCode: http.StatusNotFound,
@@ -124,14 +141,23 @@ func TestBatchBusinessClientQueryResidentNewSkipsFailedArchive(t *testing.T) {
 				body = `{"code":0,"data":{"list":[{"identityNumEncrypt":"encrypted-id","realIdentityNum":"440101199001011234","realName":"张三"}]}}`
 			case "/apis/yqfk-population/rhr/getBasicInfoListForApp":
 				body = `{"code":0,"data":[{"id":"archive-bad","name":"张*"},{"id":"archive-good","name":"张*"}]}`
-			case "/apis/yqfk-population/rhr/getViewLogList/archive-bad":
-				return &http.Response{
-					StatusCode: http.StatusNotFound,
-					Body:       io.NopCloser(strings.NewReader(`{"status":404,"error":"Not Found"}`)),
-					Header:     make(http.Header),
-				}, nil
-			case "/apis/yqfk-population/rhr/getViewLogList/archive-good":
-				body = `{"code":0,"data":[{"viewTime":"2026-06-19 11:00:00","viewOrgName":"医院B","departmentName":"内科","viewUserName":"王医生","accessChannel":"2"}]}`
+			case "/apis/yqfk-population/rhr/getViewLogList":
+				switch requestPayloadID(t, r) {
+				case "archive-bad":
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Body:       io.NopCloser(strings.NewReader(`{"status":404,"error":"Not Found"}`)),
+						Header:     make(http.Header),
+					}, nil
+				case "archive-good":
+					body = `{"code":0,"data":[{"viewTime":"2026-06-19 11:00:00","viewOrgName":"医院B","departmentName":"内科","viewUserName":"王医生","accessChannel":"2"}]}`
+				default:
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Body:       io.NopCloser(strings.NewReader("not found")),
+						Header:     make(http.Header),
+					}, nil
+				}
 			default:
 				return &http.Response{
 					StatusCode: http.StatusNotFound,
@@ -168,6 +194,17 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func requestPayloadID(t *testing.T, r *http.Request) string {
+	t.Helper()
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	return payload.ID
 }
 
 func jsonResponse(body string) *http.Response {
