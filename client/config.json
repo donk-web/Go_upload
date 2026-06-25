@@ -1,6 +1,6 @@
 {
   "login_password": "0000",
-  "auth_base_url": "http://localhost:8080",
+  "auth_base_url": "https://gotool.gzquankeinfo.com",
   "login_endpoint": "/api/login",
   "api_base_url": "https://yqfk.wjw.gz.gov.cn",
   "api_endpoint": "/api/query",
@@ -9,6 +9,6 @@
   "window_height": 1000,
   "theme_mode": "light",
   "background_hex": "#F7F9FC",
-  "mock_mode": false
+  "mock_mode": false,
+  "business_debug": false
 }
-

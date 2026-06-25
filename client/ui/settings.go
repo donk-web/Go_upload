@@ -51,6 +51,10 @@ func BuildSettingsView(window fyne.Window) fyne.CanvasObject {
 	mockCheck := widget.NewCheck("启用模拟模式（无需真实接口）", nil)
 	mockCheck.SetChecked(cfg.MockMode)
 
+	// 业务调试打印开关
+	businessDebugCheck := widget.NewCheck("启用业务调试打印", nil)
+	businessDebugCheck.SetChecked(cfg.BusinessDebug)
+
 	// 保存按钮
 	saveBtn := widget.NewButton("保存设置", func() {
 		// 校验超时时间
@@ -90,6 +94,7 @@ func BuildSettingsView(window fyne.Window) fyne.CanvasObject {
 			ThemeMode:     themeMode,
 			BackgroundHex: backgroundEntry.Text,
 			MockMode:      mockCheck.Checked,
+			BusinessDebug: businessDebugCheck.Checked,
 		}
 
 		config.Set(newCfg) // 更新全局配置
@@ -118,6 +123,7 @@ func BuildSettingsView(window fyne.Window) fyne.CanvasObject {
 		),
 		themeModeCheck,
 		mockCheck,
+		businessDebugCheck,
 		widget.NewLabel(""),
 		container.NewCenter(saveBtn),
 	)

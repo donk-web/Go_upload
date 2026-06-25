@@ -19,6 +19,7 @@ type AppConfig struct {
 	ThemeMode     string `json:"theme_mode"`     // light固定浅色，system跟随系统
 	BackgroundHex string `json:"background_hex"` // 背景颜色
 	MockMode      bool   `json:"mock_mode"`      // 是否启用模拟模式
+	BusinessDebug bool   `json:"business_debug"` // 是否启用业务调试打印
 }
 
 // Current 全局配置实例，程序运行期间都通过它访问配置
@@ -41,6 +42,7 @@ func init() {
 		ThemeMode:     "light",
 		BackgroundHex: "#F7F9FC",
 		MockMode:      false,
+		BusinessDebug: false,
 	}
 
 	_ = Load() // 尝试加载配置文件，失败就用默认值

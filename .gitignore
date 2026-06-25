@@ -1,0 +1,5 @@
+auth-api/.env
+auth-api/.gocache
+client/config1.json
+client/.gocache
+.DS_Store

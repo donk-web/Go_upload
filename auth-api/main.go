@@ -234,7 +234,11 @@ func main() {
 	}
 
 	// Gin框架
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
+	if businessDebugEnabled() {
+		router.Use(gin.Logger())
+	}
 	if err := router.SetTrustedProxies(nil); err != nil {
 		log.Fatal(err)
 	}

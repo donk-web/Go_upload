@@ -730,7 +730,7 @@ func (c *Client) getBasicInfoListForApp(idNumberEncrypt, token string) ([]appBas
 		return nil, errors.New("暂无居民健康档案")
 	}
 	for index, archive := range archives {
-		log.Printf("[business-debug] getBasicInfoListForApp archive[%d] id=%q name=%q", index, archive.ID, archive.Name)
+		businessDebugf("getBasicInfoListForApp archive[%d] id=%q name=%q", index, archive.ID, archive.Name)
 	}
 	return archives, nil
 }
@@ -772,7 +772,7 @@ func (c *Client) getViewLogList(infoID, token string) ([]viewLogItem, error) {
 	cfg := config.Get()
 	endpoint := strings.TrimRight(cfg.APIBaseURL, "/") + "/apis/yqfk-population/rhr/getViewLogList"
 	payload := map[string]any{"infoId": infoID}
-	log.Printf("[business-debug] getViewLogList endpoint=%s payload=%v", endpoint, payload)
+	businessDebugf("getViewLogList endpoint=%s payload=%v", endpoint, payload)
 
 	var result viewLogListResponse
 	if err := c.postBusinessJSON(endpoint, token, payload, &result); err != nil {
@@ -839,7 +839,7 @@ func (c *Client) doJSON(req *http.Request, target any) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[business-debug] business response error method=%s url=%s status=%d body=%s", req.Method, req.URL.String(), resp.StatusCode, strings.TrimSpace(string(data)))
+		businessDebugf("business response error method=%s url=%s status=%d body=%s", req.Method, req.URL.String(), resp.StatusCode, strings.TrimSpace(string(data)))
 		return fmt.Errorf("业务接口返回异常: HTTP %d %s", resp.StatusCode, string(data))
 	}
 
@@ -848,6 +848,13 @@ func (c *Client) doJSON(req *http.Request, target any) error {
 	}
 
 	return nil
+}
+
+func businessDebugf(format string, args ...any) {
+	if !config.Get().BusinessDebug {
+		return
+	}
+	log.Printf("[business-debug] "+format, args...)
 }
 
 func IsBusinessAuthError(err error) bool {
