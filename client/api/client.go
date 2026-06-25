@@ -612,11 +612,17 @@ func (c *Client) queryRealNew(req model.Request) (*model.Response, error) {
 	name := firstNonEmpty(searchItem.RealName, searchItem.Name, req.Name)
 	records := make([]model.ArchiveViewLog, 0)
 	seen := make(map[string]struct{})
+	var firstViewLogErr error
+	successfulArchive := false
 	for _, archive := range archives {
 		viewLogs, err := c.getViewLogList(archive.ID, token)
 		if err != nil {
-			return nil, err
+			if firstViewLogErr == nil {
+				firstViewLogErr = fmt.Errorf("档案%s查询调阅记录失败: %w", archive.ID, err)
+			}
+			continue
 		}
+		successfulArchive = true
 		recordName := firstNonEmpty(name, archive.Name)
 		for _, item := range viewLogs {
 			key := strings.Join([]string{
@@ -641,6 +647,9 @@ func (c *Client) queryRealNew(req model.Request) (*model.Response, error) {
 				AccessChannel: accessChannelName(item.AccessChannel),
 			})
 		}
+	}
+	if !successfulArchive {
+		return nil, firstViewLogErr
 	}
 
 	return &model.Response{Code: 0, Message: "success", Data: records}, nil
