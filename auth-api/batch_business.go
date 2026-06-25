@@ -147,12 +147,22 @@ func (c *batchBusinessClient) queryResidentNew(ctx context.Context, token, idCar
 	name := firstBatchNonEmpty(searchItem.RealName, searchItem.Name)
 	records := make([]batchArchiveRecord, 0)
 	seen := make(map[string]struct{})
+	var firstViewLogErr error
+	successfulArchive := false
+	successfulArchiveName := ""
 	for _, archive := range archives {
 		logs, err := c.getViewLogs(ctx, token, archive.ID)
 		if err != nil {
-			return nil, err
+			if firstViewLogErr == nil {
+				firstViewLogErr = fmt.Errorf("档案%s查询调阅记录失败: %w", archive.ID, err)
+			}
+			continue
 		}
+		successfulArchive = true
 		recordName := firstBatchNonEmpty(name, archive.Name)
+		if successfulArchiveName == "" {
+			successfulArchiveName = recordName
+		}
 		for _, item := range logs.Data {
 			key := strings.Join([]string{
 				item.ViewTime,
@@ -177,10 +187,13 @@ func (c *batchBusinessClient) queryResidentNew(ctx context.Context, token, idCar
 			})
 		}
 	}
+	if !successfulArchive {
+		return nil, firstViewLogErr
+	}
 	if len(records) == 0 {
 		return []batchArchiveRecord{{
 			IDCard: idCard,
-			Name:   firstBatchNonEmpty(name, archives[0].Name),
+			Name:   firstBatchNonEmpty(successfulArchiveName, name, archives[0].Name),
 			Index:  0,
 		}}, nil
 	}

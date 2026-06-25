@@ -114,6 +114,56 @@ func TestBatchBusinessClientQueryResidentNewMergesAllArchives(t *testing.T) {
 	}
 }
 
+func TestBatchBusinessClientQueryResidentNewSkipsFailedArchive(t *testing.T) {
+	httpClient := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var body string
+			switch r.URL.Path {
+			case "/apis/yqfk-population/basicHealthPop/getYqfkZhcxList":
+				body = `{"code":0,"data":{"list":[{"identityNumEncrypt":"encrypted-id","realIdentityNum":"440101199001011234","realName":"张三"}]}}`
+			case "/apis/yqfk-population/rhr/getBasicInfoListForApp":
+				body = `{"code":0,"data":[{"id":"archive-bad","name":"张*"},{"id":"archive-good","name":"张*"}]}`
+			case "/apis/yqfk-population/rhr/getViewLogList/archive-bad":
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(strings.NewReader(`{"status":404,"error":"Not Found"}`)),
+					Header:     make(http.Header),
+				}, nil
+			case "/apis/yqfk-population/rhr/getViewLogList/archive-good":
+				body = `{"code":0,"data":[{"viewTime":"2026-06-19 11:00:00","viewOrgName":"医院B","departmentName":"内科","viewUserName":"王医生","accessChannel":"2"}]}`
+			default:
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(strings.NewReader("not found")),
+					Header:     make(http.Header),
+				}, nil
+			}
+			return jsonResponse(body), nil
+		}),
+	}
+
+	client := &batchBusinessClient{
+		baseURL: "https://example.test",
+		client:  httpClient,
+	}
+	records, err := client.QueryResidentWithMethod(
+		context.Background(),
+		"test-token",
+		"440101199001011234",
+		batchQueryMethodNew,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("len(records) = %d, want 1", len(records))
+	}
+	if records[0].ViewOrgName != "医院B" || records[0].AccessChannel != "医院HIS系统" {
+		t.Fatalf("record = %#v", records[0])
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
